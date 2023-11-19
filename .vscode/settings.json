@@ -1,0 +1,21 @@
+{
+  "cSpell.words": [
+    "astype",
+    "dtype",
+    "initstrategies",
+    "initstrategy",
+    "intp",
+    "linalg",
+    "nanmax",
+    "nanmean",
+    "nanmin",
+    "ndarray",
+    "nditer",
+    "pyfunc",
+    "pyspark",
+    "randn",
+    "savetxt",
+    "toarray",
+    "vectorize"
+  ]
+}
