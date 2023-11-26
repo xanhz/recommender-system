@@ -7,21 +7,28 @@ class GradientDescent(UnconstrainedMatrixFactorization):
     def __init__(
         self,
         n_factors: int,
+        n_epochs: int = 20,
         threshold: float = 0.005,
-        epoch: int = 20,
         verbose_step: int = 5,
-        regularization: float = 0,
         use_bias: bool = False,
-        learning_rate: float = 0.005
+        regularization: float = 0,
+        learning_rate: float = 0.005,
     ) -> None:
-        super().__init__(n_factors, threshold, epoch, verbose_step, regularization, use_bias)
+        super().__init__(
+            n_factors,
+            n_epochs,
+            threshold,
+            verbose_step,
+            use_bias,
+            regularization,
+        )
         self.learning_rate = learning_rate
 
     def _fit(self):
         rmse = np.inf
         epoch = 0
 
-        while epoch < self.epoch:
+        while epoch < self.n_epochs:
             E = self._compute_error_matrix()
             rmse = self._compute_rmse(E)
             epoch += 1
@@ -39,7 +46,7 @@ class GradientDescent(UnconstrainedMatrixFactorization):
             self.V -= self.learning_rate * gradient_V
 
             if self.use_bias:
-                self.U[:, self.n_factors + 1] = 1.0
-                self.V[:, self.n_factors] = 1.0
+                self.U[:, -1] = 1.0
+                self.V[:, -2] = 1.0
 
         return self

@@ -2,32 +2,33 @@ from concurrent.futures import ThreadPoolExecutor, wait
 
 import numpy as np
 from core.models.base import UnconstrainedMatrixFactorization
-from core.utils import from_rows_to_matrix
 
 
 class AlternatingLeastSquares(UnconstrainedMatrixFactorization):
     def __init__(
         self,
         n_factors: int,
+        n_epochs: int = 20,
         threshold: float = 0.005,
-        epoch: int = 20,
         verbose_step: int = 5,
-        regularization: float = 0,
         use_bias: bool = False,
-        n_workers: int = None
+        regularization: float = 0,
+        n_workers: int = None,
     ) -> None:
-        super().__init__(n_factors, threshold, epoch, verbose_step, regularization, use_bias)
+        super().__init__(n_factors, n_epochs, threshold, verbose_step, use_bias, regularization)
         self.n_workers = n_workers
 
     def _fit(self):
-        R = from_rows_to_matrix(self.observed_set)
-        I = np.eye(self.n_factors)
+        R = self.dataset.to_matrix()
+        n_users, n_items = R.shape
+        n_factors = self.n_factors
+
+        I = np.eye(n_factors)
         rmse = np.inf
         epoch = 0
 
         def solve_Ui(i: int):
-            rated_items_by_user = self.observed_set[self.observed_set[:, 0] == i]
-            item_ids = rated_items_by_user[:, 1]
+            item_ids = self.dataset.rated_items_by_user(i)
 
             sub_R = R[i, item_ids]
             sub_V = self.V[item_ids, :]
@@ -38,8 +39,7 @@ class AlternatingLeastSquares(UnconstrainedMatrixFactorization):
             return np.linalg.solve(A_i, B_i)
 
         def solve_Vj(j: int):
-            rated_users_by_item = self.observed_set[self.observed_set[:, 1] == j]
-            user_ids = rated_users_by_item[:, 0]
+            user_ids = self.dataset.users_rate_item(j)
 
             sub_R = R[user_ids, j]
             sub_U = self.U[user_ids, :]
@@ -50,7 +50,7 @@ class AlternatingLeastSquares(UnconstrainedMatrixFactorization):
             return np.linalg.solve(A_j, B_j)
 
         with ThreadPoolExecutor(max_workers=self.n_workers) as executor:
-            while epoch < self.epoch:
+            while epoch < self.n_epochs:
                 E = self._compute_error_matrix()
                 rmse = self._compute_rmse(E)
                 epoch += 1
@@ -61,11 +61,11 @@ class AlternatingLeastSquares(UnconstrainedMatrixFactorization):
                 if rmse <= self.threshold:
                     return self
 
-                user_futures = [executor.submit(solve_Ui, i) for i in range(self.n_users)]
+                user_futures = [executor.submit(solve_Ui, i) for i in range(n_users)]
                 wait(user_futures)
                 self.U = np.array([future.result() for future in user_futures])
 
-                item_futures = [executor.submit(solve_Vj, j) for j in range(self.n_items)]
+                item_futures = [executor.submit(solve_Vj, j) for j in range(n_items)]
                 wait(item_futures)
                 self.V = np.array([future.result() for future in item_futures])
 

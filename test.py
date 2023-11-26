@@ -1,14 +1,19 @@
-import numpy as np
-from core import models, utils, initstrategies
+from core import models
+from core.dataset import Dataset
 
-train_data = utils.read_csv_to_rows(f'example.csv')
-test_data = utils.read_csv_to_rows(f'example.csv')
+train_data = Dataset.from_csv(f'example.csv')
+test_data = Dataset.from_csv(f'example.csv')
 
-model = models.AlternatingLeastSquares(
-    n_factors=2,
-    epoch=4,
+model = models.StochasticGradientDescent(
+    n_factors=3,
+    n_epochs=50,
     verbose_step=5,
-    regularization=0.01
+    use_bias=True,
+    threshold=0.005,
+    # n_workers=6,
+    regularization=0.0,
+    learning_rate=0.005
 )
 model.fit(train_data)
 model.evaluate(test_data)
+print(model.R_hat)

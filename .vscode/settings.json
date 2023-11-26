@@ -15,7 +15,13 @@
     "pyspark",
     "randn",
     "savetxt",
+    "testset",
     "toarray",
+    "trainset",
     "vectorize"
+  ],
+  "autopep8.args": [
+    "--max-line-length",
+    "120",
   ]
 }

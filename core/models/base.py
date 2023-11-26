@@ -1,114 +1,104 @@
 from abc import ABC, abstractmethod
 
 import numpy as np
-from sklearn import metrics
+
+from core import utils
+from core.dataset import Dataset
 
 
 class LatentFactorModel(ABC):
     def __init__(
         self,
         n_factors: int,
-        threshold: float = 0.0001,
-        epoch: int = 20,
+        n_epochs: int = 20,
+        threshold: float = 0.005,
         verbose_step: int = 5,
         use_bias: bool = False,
     ) -> None:
         super().__init__()
         self.n_factors = n_factors
+        self.n_epochs = n_epochs
         self.threshold = threshold
-        self.epoch = epoch
         self.verbose_step = verbose_step
         self.use_bias = use_bias
+        self.dataset: Dataset = None
+        self.U: np.ndarray = None
+        self.V: np.ndarray = None
 
-        self.observed_set = np.array([])
+    @property
+    def R_hat(self):
+        return self.U @ self.V.T + self.dataset.global_mean
 
-        self.U = np.array([], dtype=np.float64)
-        self.V = np.array([], dtype=np.float64)
+    def _compute_error_matrix(self):
+        user_ids = self.dataset.user_ids
+        item_ids = self.dataset.item_ids
+        ratings = self.dataset.ratings
+        shape = self.dataset.shape
 
-        self.n_users = 0
-        self.n_items = 0
+        E = np.zeros(shape)
 
-        self.user_biases = np.array([], dtype=np.float64)
-        self.item_biases = np.array([], dtype=np.float64)
+        E[user_ids, item_ids] = ratings - self.R_hat[user_ids, item_ids]
 
-        self.global_mean = 0
-        self.user_means = np.array([], dtype=np.float64)
-        self.item_means = np.array([], dtype=np.float64)
-
-    def _compute_error_matrix(self) -> np.ndarray:
-        E = np.zeros(shape=(self.n_users, self.n_items))
-        user_ids = self.observed_set[:, 0]
-        item_ids = self.observed_set[:, 1]
-        ratings = self.observed_set[:, 2]
-        E[user_ids, item_ids] = ratings - np.dot(self.U, self.V.T)[user_ids, item_ids]
         return E
+
+    def _init_matrices(self, **kwargs):
+        n_users, n_items = self.dataset.shape
+        n_factors = self.n_factors
+
+        U = utils.random_uniform_matrix(n_users, n_factors)
+        V = utils.random_uniform_matrix(n_items, n_factors)
+
+        if self.use_bias:
+            U = np.column_stack([
+                U,
+                np.full(shape=(n_users, ), fill_value=0.0),
+                np.full(shape=(n_users, ), fill_value=1.0),
+            ])
+
+            V = np.column_stack([
+                V,
+                np.full(shape=(n_items, ), fill_value=1.0),
+                np.full(shape=(n_items, ), fill_value=0.0),
+            ])
+
+        return U, V
 
     def _compute_rmse(self, E: np.ndarray) -> float:
         mse = np.mean(E ** 2, where=E != 0)
         return np.sqrt(mse)
 
-    def fit(self, rows: np.ndarray) -> 'LatentFactorModel':
-        self.observed_set = rows
-        self.n_users, self.n_items = rows[:, 0].max() + 1, rows[:, 1].max() + 1
-
-        # Init matrices
-        self.U = np.random.randn(self.n_users, self.n_factors)
-        self.V = np.random.randn(self.n_items, self.n_factors)
-
-        # Calculate means
-        self.global_mean = rows[:, 2].mean()
-
-        self.user_means = np.zeros(shape=(self.n_users, ))
-        for user_id in range(self.n_users):
-            indices = rows[:, 0] == user_id
-            ratings = rows[indices, 2]
-            self.user_means[user_id] = 0 if ratings.size == 0 else ratings.mean()
-
-        self.item_means = np.zeros(shape=(self.n_items, ))
-        for item_id in range(self.n_items):
-            indices = rows[:, 1] == item_id
-            ratings = rows[indices, 2]
-            self.item_means[item_id] = 0 if ratings.size == 0 else ratings.mean()
-
-        # Calculate biases
-        self.user_biases = self.user_means - self.global_mean
-        self.item_biases = self.item_biases - self.global_mean
-
+    def fit(self, dataset: Dataset) -> 'LatentFactorModel':
+        self.dataset = dataset
+        U, V = self._init_matrices()
+        self.U = U
+        self.V = V
         return self._fit()
 
     @abstractmethod
     def _fit(self) -> 'LatentFactorModel':
         pass
 
-    def predict_rating(self, user_id: int, item_id: int) -> float:
-        predicted_rating = self.U[user_id] @ self.V[item_id]
+    def predict_rating(self, user_id: int, item_id: int, clip: bool = True) -> float:
+        predicted = self.dataset.global_mean + self.U[user_id] @ self.V[item_id].T
+        return predicted if not clip else np.clip(predicted, *self.dataset.rating_range)
 
-        if self.use_bias:
-            return self.user_biases[user_id] + self.item_biases[item_id] + predicted_rating
-
-        return predicted_rating
-
-    def evaluate(self, test_rows: np.ndarray):
-        user_ids = test_rows[:, 0]
-        item_ids = test_rows[:, 1]
-        expected = test_rows[:, 2]
+    def evaluate(self, test_set: Dataset):
+        user_ids = test_set.user_ids
+        item_ids = test_set.item_ids
         map_func = np.vectorize(pyfunc=lambda i, j: self.predict_rating(i, j))
-        actual = map_func(user_ids, item_ids)
-
-        print('MAE:', metrics.mean_absolute_error(expected, actual))
-        print('MSE:', metrics.mean_squared_error(expected, actual))
-        print('RMSE:', metrics.mean_squared_error(expected, actual) ** 0.5)
+        predicted = map_func(user_ids, item_ids)
+        return test_set.evaluate(predicted)
 
 
 class UnconstrainedMatrixFactorization(LatentFactorModel):
     def __init__(
         self,
         n_factors: int,
+        n_epochs: int = 20,
         threshold: float = 0.005,
-        epoch: int = 20,
         verbose_step: int = 5,
-        regularization: float = 0.0,
         use_bias: bool = False,
+        regularization: float = 0.0
     ) -> None:
-        super().__init__(n_factors, threshold, epoch, verbose_step, use_bias)
+        super().__init__(n_factors, n_epochs, threshold, verbose_step, use_bias)
         self.regularization = regularization
