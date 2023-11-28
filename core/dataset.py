@@ -16,16 +16,26 @@ class Dataset:
         self.rows = rows
         self.n_records = len(rows)
 
+        user_ids = rows[:, 0]
+        item_ids = rows[:, 1]
+        ratings = rows[:, 2]
+
         self.shape: Tuple[int, int] = shape
         if shape is None:
-            self.shape = (rows[:, 0].max() + 1, rows[:, 1].max() + 1)
+            self.shape = (user_ids.max() + 1, item_ids.max() + 1)
 
-        ratings = rows[:, 2]
         self.rating_range: Tuple[float, float] = rating_range
         if rating_range is None:
             self.rating_range = (ratings.min(), ratings.max())
 
         self.global_mean: float = ratings.mean()
+
+        sparse_matrix = coo_matrix(
+            (ratings, (user_ids, item_ids)),
+            shape=self.shape,
+            dtype=np.float64,
+        )
+        self.rating_matrix = sparse_matrix.toarray()
 
     @staticmethod
     def from_csv(
@@ -73,20 +83,6 @@ class Dataset:
         print('MSE:', metrics.mean_squared_error(expected, predicted))
         print('RMSE:', metrics.mean_squared_error(expected, predicted) ** 0.5)
 
-    def to_matrix(self) -> np.ndarray:
-        user_ids = self.user_ids
-        item_ids = self.item_ids
-        ratings = self.ratings
-        shape = self.shape
-
-        sparse_matrix = coo_matrix(
-            (ratings, (user_ids, item_ids)),
-            shape=shape,
-            dtype=np.float64,
-        )
-
-        return sparse_matrix.toarray()
-
     def rated_items_by_user(self, user_id: int):
         records = self.rows[self.user_ids == user_id]
         return np.unique(records[:, 1])
@@ -94,3 +90,19 @@ class Dataset:
     def users_rate_item(self, item_id: int):
         records = self.rows[self.item_ids == item_id]
         return np.unique(records[:, 0])
+
+    def to_csv(
+        self,
+        filepath: str,
+        user_field: str = 'user_id',
+        item_field: str = 'item_id',
+        rating_field: str = 'rating',
+        predict_field: str = 'prediction',
+    ):
+        _, n_cols = self.rows.shape
+        columns = [user_field, item_field, rating_field]
+        if n_cols > 3:
+            columns.append(predict_field)
+
+        df = pd.DataFrame(data=self.rows, columns=columns)
+        df.to_csv(path_or_buf=filepath, index=False)

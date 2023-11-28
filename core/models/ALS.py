@@ -19,7 +19,7 @@ class AlternatingLeastSquares(UnconstrainedMatrixFactorization):
         self.n_workers = n_workers
 
     def _fit(self):
-        R = self.dataset.to_matrix()
+        R = self.dataset.rating_matrix
         n_users, n_items = R.shape
         n_factors = self.n_factors
 
@@ -51,8 +51,7 @@ class AlternatingLeastSquares(UnconstrainedMatrixFactorization):
 
         with ThreadPoolExecutor(max_workers=self.n_workers) as executor:
             while epoch < self.n_epochs:
-                E = self._compute_error_matrix()
-                rmse = self._compute_rmse(E)
+                rmse = self._compute_rmse()
                 epoch += 1
 
                 if epoch % self.verbose_step == 0:

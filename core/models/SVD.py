@@ -1,50 +1,52 @@
 import numpy as np
 from sklearn.decomposition import TruncatedSVD
 
-from core import initstrategies
 from core.models.base import LatentFactorModel
 
 
 class SingularValueDecomposition(LatentFactorModel):
-    def __init__(
-        self,
-        n_factors: int,
-        n_epochs: int = 20,
-        threshold: float = 0.005,
-        verbose_step: int = 5,
-        use_bias: bool = False,
-        init_strategy: initstrategies.StrategyType = 'random',
-    ) -> None:
-        super().__init__(n_factors, n_epochs, threshold, verbose_step, use_bias)
-        self.init_strategy = init_strategy
-
-    def _compute_objective_function_value(self, E: np.ndarray) -> float:
-        return np.sum(np.abs(E))
-
     def _fit(self):
-        R = self.dataset.to_matrix()
-        Rf = initstrategies.create(self.init_strategy).fill(R)
-        n_factors = self.n_factors
-        unobserved_set = R == 0
+        R = self.dataset.rating_matrix
+        Rf = self._mean_centering(R)
+
+        mask = R == 0
 
         diff = np.inf
         epoch = 0
-        while diff > self.threshold and epoch < self.n_epochs:
-            svd = TruncatedSVD(n_components=n_factors)
+        while epoch < self.n_epochs and diff > self.threshold:
+            svd = TruncatedSVD(n_components=self.n_factors)
             self.U = svd.fit_transform(Rf)
             self.V = svd.components_.transpose()
 
-            R_approx = self.U @ self.V.transpose()
-            D = np.where(unobserved_set, R_approx - Rf, 0)
+            R_approx = self.U @ svd.components_
+            D = np.where(mask, R_approx - Rf, 0)
             diff = np.sum(np.abs(D))
             epoch += 1
 
             if epoch % self.verbose_step == 0:
                 print(f'Epoch={epoch} | Diff={diff}')
 
-            Rf[unobserved_set] = R_approx[unobserved_set]
+            Rf[mask] = R_approx[mask]
 
         return self
 
-    def predict_rating(self, user_id: int, item_id: int) -> float:
-        return self.U[user_id] @ self.V[item_id].T
+    def _mean_centering(self, R: np.ndarray):
+        def mean_centering_row(row: np.ndarray):
+            available_indices = row != 0
+
+            if not np.any(available_indices):
+                return np.full(row.shape, 0.0)
+
+            row[~available_indices] = row.mean(where=available_indices)
+
+            return row
+
+        return np.apply_along_axis(mean_centering_row, axis=1, arr=R)
+
+    def predict_rating(self, user_id: int, item_id: int, clip: bool = True) -> float:
+        predicted = np.dot(self.U[user_id, :], self.V[item_id, :])
+
+        if not clip:
+            return predicted
+
+        return np.clip(predicted, *self.dataset.rating_range)

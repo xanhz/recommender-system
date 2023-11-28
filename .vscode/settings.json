@@ -5,6 +5,7 @@
     "initstrategies",
     "initstrategy",
     "intp",
+    "isin",
     "linalg",
     "nanmax",
     "nanmean",

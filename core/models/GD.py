@@ -28,16 +28,8 @@ class GradientDescent(UnconstrainedMatrixFactorization):
         rmse = np.inf
         epoch = 0
 
-        while epoch < self.n_epochs:
+        while epoch < self.n_epochs and rmse > self.threshold:
             E = self._compute_error_matrix()
-            rmse = self._compute_rmse(E)
-            epoch += 1
-
-            if epoch % self.verbose_step == 0:
-                print(f'Epoch={epoch} | RMSE={rmse}')
-
-            if rmse <= self.threshold:
-                return self
 
             gradient_U = -(E @ self.V - self.regularization * self.U)
             gradient_V = -(E.T @ self.U - self.regularization * self.V)
@@ -48,5 +40,11 @@ class GradientDescent(UnconstrainedMatrixFactorization):
             if self.use_bias:
                 self.U[:, -1] = 1.0
                 self.V[:, -2] = 1.0
+
+            rmse = self._compute_rmse()
+            epoch += 1
+
+            if epoch % self.verbose_step == 0:
+                print(f'Epoch={epoch} | RMSE={rmse}')
 
         return self

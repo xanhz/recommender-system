@@ -2,7 +2,6 @@ from abc import ABC, abstractmethod
 
 import numpy as np
 
-from core import utils
 from core.dataset import Dataset
 
 
@@ -25,28 +24,31 @@ class LatentFactorModel(ABC):
         self.U: np.ndarray = None
         self.V: np.ndarray = None
 
-    @property
-    def R_hat(self):
-        return self.U @ self.V.T + self.dataset.global_mean
-
     def _compute_error_matrix(self):
         user_ids = self.dataset.user_ids
         item_ids = self.dataset.item_ids
-        ratings = self.dataset.ratings
-        shape = self.dataset.shape
+        global_mean = self.dataset.global_mean if self.use_bias else 0
 
-        E = np.zeros(shape)
+        R = self.dataset.rating_matrix
+        R_hat = self.U @ self.V.T + global_mean
 
-        E[user_ids, item_ids] = ratings - self.R_hat[user_ids, item_ids]
+        E = np.zeros(self.dataset.shape)
+        E[user_ids, item_ids] = R[user_ids, item_ids] - R_hat[user_ids, item_ids]
 
         return E
+
+    def _compute_rmse(self) -> float:
+        E = self._compute_error_matrix()
+        mse = np.mean(E ** 2, where=E != 0)
+        return np.sqrt(mse)
 
     def _init_matrices(self, **kwargs):
         n_users, n_items = self.dataset.shape
         n_factors = self.n_factors
 
-        U = utils.random_uniform_matrix(n_users, n_factors)
-        V = utils.random_uniform_matrix(n_items, n_factors)
+        rng = np.random.RandomState()
+        U = rng.normal(0, 0.1, (n_users, n_factors))
+        V = rng.normal(0, 0.1, (n_items, n_factors))
 
         if self.use_bias:
             U = np.column_stack([
@@ -63,10 +65,6 @@ class LatentFactorModel(ABC):
 
         return U, V
 
-    def _compute_rmse(self, E: np.ndarray) -> float:
-        mse = np.mean(E ** 2, where=E != 0)
-        return np.sqrt(mse)
-
     def fit(self, dataset: Dataset) -> 'LatentFactorModel':
         self.dataset = dataset
         U, V = self._init_matrices()
@@ -79,7 +77,11 @@ class LatentFactorModel(ABC):
         pass
 
     def predict_rating(self, user_id: int, item_id: int, clip: bool = True) -> float:
-        predicted = self.dataset.global_mean + self.U[user_id] @ self.V[item_id].T
+        predicted = np.dot(self.U[user_id, :], self.V[item_id, :])
+
+        if self.use_bias:
+            predicted += self.dataset.global_mean
+
         return predicted if not clip else np.clip(predicted, *self.dataset.rating_range)
 
     def evaluate(self, test_set: Dataset):
@@ -88,6 +90,32 @@ class LatentFactorModel(ABC):
         map_func = np.vectorize(pyfunc=lambda i, j: self.predict_rating(i, j))
         predicted = map_func(user_ids, item_ids)
         return test_set.evaluate(predicted)
+
+    def make_recommendation_for_user(self, user_id: int, n_items: int = 10):
+        ratings = self.U[user_id, :] @ self.V.T
+
+        item_ids = np.argsort(ratings)[::-1]  # Sort indices in descending order
+        sorted_ratings = np.array(list(zip(item_ids, ratings[item_ids])))
+
+        rated_item_ids = self.dataset.rated_items_by_user(user_id)
+
+        unrated = sorted_ratings[~np.isin(sorted_ratings[:, 0], rated_item_ids)]
+        k = max(len(unrated), n_items)
+
+        return unrated[:k]
+
+    def make_recommendation_for_item(self, item_id: int, n_users: int = 10):
+        ratings = self.U @ self.V[item_id, :].T
+
+        user_ids = np.argsort(ratings)[::-1]  # Sort indices in descending order
+        sorted_ratings = np.array(list(zip(user_ids, ratings[user_ids])))
+
+        rated_user_ids = self.dataset.users_rate_item(item_id)
+
+        unrated = sorted_ratings[~np.isin(sorted_ratings[:, 0], rated_user_ids)]
+        k = max(len(unrated), n_users)
+
+        return unrated[:k]
 
 
 class UnconstrainedMatrixFactorization(LatentFactorModel):
