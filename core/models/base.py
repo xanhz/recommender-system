@@ -77,6 +77,11 @@ class LatentFactorModel(ABC):
         pass
 
     def predict_rating(self, user_id: int, item_id: int, clip: bool = True) -> float:
+        n_users, n_items = self.dataset.shape
+
+        if user_id >= n_users or item_id >= n_items:
+            return self.dataset.global_mean
+
         predicted = np.dot(self.U[user_id, :], self.V[item_id, :])
 
         if self.use_bias:

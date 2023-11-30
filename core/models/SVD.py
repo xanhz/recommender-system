@@ -42,11 +42,3 @@ class SingularValueDecomposition(LatentFactorModel):
             return row
 
         return np.apply_along_axis(mean_centering_row, axis=1, arr=R)
-
-    def predict_rating(self, user_id: int, item_id: int, clip: bool = True) -> float:
-        predicted = np.dot(self.U[user_id, :], self.V[item_id, :])
-
-        if not clip:
-            return predicted
-
-        return np.clip(predicted, *self.dataset.rating_range)

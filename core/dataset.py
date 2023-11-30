@@ -42,7 +42,9 @@ class Dataset:
         filepath: str,
         user_field: str = 'user_id',
         item_field: str = 'item_id',
-        rating_field: str = 'rating'
+        rating_field: str = 'rating',
+        rating_range: Tuple[float, float] = None,
+        shape: Tuple[int, int] = None,
     ) -> 'Dataset':
         df = pd.read_csv(filepath)
 
@@ -51,7 +53,7 @@ class Dataset:
         rows[:, 0] -= 1
         rows[:, 1] -= 1
 
-        return Dataset(rows)
+        return Dataset(rows, rating_range, shape)
 
     @property
     def user_ids(self) -> np.ndarray:
@@ -80,7 +82,6 @@ class Dataset:
         expected = self.rows[:, 2]
         self.rows = np.column_stack((self.rows[:, [0, 1, 2]], predicted))
         print('MAE:', metrics.mean_absolute_error(expected, predicted))
-        print('MSE:', metrics.mean_squared_error(expected, predicted))
         print('RMSE:', metrics.mean_squared_error(expected, predicted) ** 0.5)
 
     def rated_items_by_user(self, user_id: int):
